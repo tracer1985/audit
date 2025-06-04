@@ -1,5 +1,5 @@
 ---
-- name: Retrieve all users in /etc/passwd
+- name: Retrieve all users in /etc/passwd and display the result
   hosts: all
   gather_facts: false
   become: true
@@ -10,6 +10,6 @@
       register: passwd_users
       changed_when: false
 
-    - name: Show all users
+    - name: Output all users from /etc/passwd
       debug:
         msg: "{{ passwd_users.stdout_lines }}"
