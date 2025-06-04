@@ -1,19 +1,30 @@
----
-- name: Disable specific user accounts on Linux
+- name: Disable specified user accounts
   hosts: all
-  gather_facts: false
+  become: true
 
   vars:
-    disabled_users:
+    accounts_to_disable:
       - logstash
 
   tasks:
-    - name: Disable user account
-      ansible.builtin.command: usermod --expiredate 1 {{ item }}
-      loop: "{{ disabled_users }}"
-      ignore_errors: true
+    - name: Ensure accounts are disabled
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: present
+        password_lock: true
+        shell: /sbin/nologin
+        comment: "Account disabled by Ansible"
+      loop: "{{ accounts_to_disable }}"
+      ignore_errors: true # Continue if an account does not exist
 
-    - name: Lock user account password (extra security)
-      ansible.builtin.command: passwd -l {{ item }}
-      loop: "{{ disabled_users }}"
-      ignore_errors: true
+    - name: Verify account status (optional)
+      ansible.builtin.shell: "grep '^{{ item }}:' /etc/passwd"
+      register: user_check
+      changed_when: false
+      loop: "{{ accounts_to_disable }}"
+
+    - name: Display account status
+      ansible.builtin.debug:
+        msg: "Account {{ item.item }}: {{ item.stdout }}"
+      loop: "{{ user_check.results }}"
+      when: item.rc == 0
