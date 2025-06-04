@@ -1,65 +1,77 @@
 ---
-- name: Audit all accounts (including group members) allowed to run any command anywhere as root in /etc/sudoers
+- name: Check /etc/sudoers for ALL=(ALL) ALL privileges and group members
   hosts: all
-  gather_facts: false
-  vars:
-    sudoers_file: /etc/sudoers
+  become: true # This playbook needs root privileges to read /etc/sudoers and query group members
 
   tasks:
-    - name: Read /etc/sudoers file
-      become: true
-      slurp:
-        src: "{{ sudoers_file }}"
+    - name: Slurp the content of /etc/sudoers
+      ansible.builtin.slurp:
+        src: /etc/sudoers
       register: sudoers_content
+      # This task reads the entire /etc/sudoers file from the target host.
+      # The content is base64 encoded and stored in sudoers_content.content.
 
-    - name: Decode sudoers content
-      set_fact:
-        sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
+    - name: Decode the base64 content
+      ansible.builtin.set_fact:
+        decoded_sudoers: "{{ sudoers_content['content'] | b64decode }}"
+      # Decodes the base64 content of /etc/sudoers into a readable string.
 
-    - name: Extract accounts/groups with full root access
-      set_fact:
-        full_root_access_entries: >-
-          {{
-            sudoers_decoded.split('\n')
-            | select('match', '^([a-zA-Z0-9_-]+|%[a-zA-Z0-9_-]+)\s+ALL=\(ALL(:ALL)?\)\s+ALL')
-            | map('regex_search', '^([a-zA-Z0-9_-]+|%[a-zA-Z0-9_-]+)')
-            | unique
-            | list
-          }}
+    - name: Find direct users with ALL=(ALL) ALL privileges on this host
+      ansible.builtin.set_fact:
+        host_direct_privileged_users: "{{ decoded_sudoers.splitlines() | select('search', '^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL') | map('regex_replace', '^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL.*', '\\1') | list }}"
+      # This task identifies lines in /etc/sudoers that grant direct users
+      # 'ALL=(ALL) ALL' permissions.
+      # Regex explanation:
+      # ^\\s* - Start of line, optional leading whitespace.
+      # ([^#\\s]+)        - Capture group 1: one or more characters that are not '#' or whitespace (this is the username).
+      # \\s+              - One or more whitespace characters.
+      # ALL=\\(ALL\\)     - Literal 'ALL=(ALL)' (parentheses are escaped).
+      # \\s+              - One or more whitespace characters.
+      # ALL               - Literal 'ALL'.
+      # The 'map' filter then extracts only the captured username.
 
-    - name: Separate users and groups
-      set_fact:
-        user_entries: "{{ full_root_access_entries | reject('match', '^%') | list }}"
-        group_entries: "{{ full_root_access_entries | select('match', '^%') | map('regex_replace', '^%', '') | list }}"
+    - name: Find groups with ALL=(ALL) ALL privileges on this host
+      ansible.builtin.set_fact:
+        host_privileged_groups: "{{ decoded_sudoers.splitlines() | select('search', '^\\s*%([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL') | map('regex_replace', '^\\s*%([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL.*', '\\1') | list }}"
+      # This task identifies lines that grant 'ALL=(ALL) ALL' permissions to groups.
+      # It's similar to the user regex, but specifically looks for a '%' prefix
+      # to identify group entries (e.g., %sudo ALL=(ALL) ALL).
 
-    - name: Get members of each group
-      become: true
-      shell: "getent group {{ item }} | awk -F: '{print $4}'"
-      register: group_members
-      with_items: "{{ group_entries }}"
-      when: group_entries | length > 0
+    - name: Get members for each privileged group found on this host
+      ansible.builtin.getent:
+        database: group
+        key: "{{ item }}"
+      register: group_info_per_host
+      loop: "{{ host_privileged_groups | unique }}" # Loop through unique privileged groups found on this host
+      when: host_privileged_groups | length > 0
+      # Uses the 'getent' module to query group membership for each identified privileged group.
+      # This allows fetching the actual users who are members of these groups.
 
-    - name: Assemble all accounts with full root access
-      set_fact:
-        all_accounts_with_full_root_access: >-
-          {{
-            user_entries
-            + (
-                group_members.results
-                | map(attribute='stdout')
-                | map('split', ',')
-                | sum(start=[])
-                | reject('equalto', '')
-                | unique
-                | list
-              )
-          }}
+    - name: Extract group members on this host
+      ansible.builtin.set_fact:
+        host_group_members: "{{ group_info_per_host.results | map(attribute='members') | flatten | default([]) }}"
+      when: group_info_per_host.results is defined
+      # Processes the output from 'getent' to extract just the list of members
+      # for each group. 'flatten' ensures a single list even if 'members' was nested.
 
-    - name: Show all accounts (including group members) with full root access
-      debug:
-        msg: |
-          Host: {{ inventory_hostname }}
-          Accounts (users and group members) allowed to run any command anywhere as root in /etc/sudoers:
-          {% for acc in all_accounts_with_full_root_access %}
-          {{ acc }}
-          {% endfor %}
+    - name: Combine direct users and group members for this host
+      ansible.builtin.set_fact:
+        all_privileged_accounts_on_host: "{{ (host_direct_privileged_users | unique) + (host_group_members | unique) }}"
+      # Creates a combined list of all accounts found on the current host
+      # that have sudo privileges, including both direct users and group members.
+
+  post_tasks:
+    - name: Aggregate all privileged accounts from all hosts
+      ansible.builtin.set_fact:
+        final_privileged_accounts_list: "{{ ansible_play_hosts | map('extract', hostvars, 'all_privileged_accounts_on_host') | flatten | unique | sort }}"
+      run_once: true
+      # This task runs once on the control node after all hosts have completed their tasks.
+      # It gathers the 'all_privileged_accounts_on_host' fact from every host in the play,
+      # flattens them into a single list, removes duplicates, and sorts them.
+
+    - name: Display all privileged accounts (direct users and group members) across all hosts
+      ansible.builtin.debug:
+        msg: "The following accounts (direct users and group members) have 'ALL=(ALL) ALL' sudo privileges: {{ final_privileged_accounts_list }}"
+      run_once: true
+      when: final_privileged_accounts_list | length > 0
+      # Displays the final, consolidated list of all privileged accounts.
