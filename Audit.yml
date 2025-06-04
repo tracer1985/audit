@@ -35,10 +35,10 @@
       mail:
         host: "{{ smtp_host }}"
         port: "{{ smtp_port }}"
-        username: "{{ spcvillarete@unionbankph.com }}"
-        password: "{{ yqnpcflsbfzjfbky }}"
-        to: "{{ sherwin.villarete@yahoo.com }}"
-        from: "{{ spcvilllarete@unionbankph.com }}"
+        username: "{{ smtp_username }}"
+        password: "{{ smtp_password }}"
+        to: "{{ email_to }}"
+        from: "{{ email_from }}"
         subject: "Sudoers audit for {{ inventory_hostname }}"
         body: |
           Sudoers audit for host: {{ inventory_hostname }}
