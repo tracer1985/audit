@@ -1,5 +1,5 @@
 ---
-- name: Audit /etc/sudoers for root access privileges
+- name: Audit /etc/sudoers and get names with root access
   hosts: all
   gather_facts: false
   tasks:
@@ -13,20 +13,23 @@
       set_fact:
         sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
 
-    - name: Extract lines granting root access
+    - name: Extract names with root access
       set_fact:
-        root_access_lines: >-
+        root_access_names: >-
           {{
-            sudoers_decoded.split('\n') |
-            select('match', '^(root|%[^\s]+)\s+ALL=\(ALL(:ALL)?\)\s+ALL') |
-            list
+            sudoers_decoded.split('\n')
+            | select('match', '^(root|%[a-zA-Z0-9_-]+)\\s+ALL=\\(ALL(:ALL)?\\)\\s+ALL')
+            | map('regex_search', '^(root|%[a-zA-Z0-9_-]+)')
+            | map('regex_replace', '^%', '')
+            | unique
+            | list
           }}
 
-    - name: Display users/groups with root access
+    - name: Show names with root access
       debug:
         msg: |
           Host: {{ inventory_hostname }}
-          Lines granting root access in /etc/sudoers:
-          {% for line in root_access_lines %}
-          {{ line }}
+          Users/Groups with root access in /etc/sudoers:
+          {% for name in root_access_names %}
+          {{ name }}
           {% endfor %}
