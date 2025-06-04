@@ -1,14 +1,7 @@
 ---
-- name: Audit /etc/sudoers and email results via Office365
+- name: Audit /etc/sudoers and display results on console
   hosts: all
   gather_facts: false
-  vars:
-    email_to: "sherwin.villarete@yahoo.com"          # <-- Set your destination email
-    email_from: "spcvilllarete@unionbankph.com"       # <-- Must be a valid Office365 sender
-    smtp_host: "smtp.office365.com"
-    smtp_port: 587
-    smtp_username: "spcvilllarete@unionbankph.com"  # <-- Set your Office365 username
-    smtp_password: "yqnpcflsbfzjfbky"         # <-- Set your app password or real password if allowed
   tasks:
     - name: Read /etc/sudoers file content
       become: true
@@ -21,32 +14,11 @@
         sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
         root_access_lines: "{{ sudoers_decoded.split('\n') | select('match', '^(root|%[^\s]+)\\s+ALL=\\(ALL(:ALL)?\\)\\s+ALL') | list }}"
 
-    - name: Save root access findings to file
-      copy:
-        dest: "/tmp/sudoers_audit_{{ inventory_hostname }}.txt"
-        content: |-
+    - name: Show users/groups with root access
+      debug:
+        msg: |
           Host: {{ inventory_hostname }}
           Lines granting root access in /etc/sudoers:
           {% for line in root_access_lines %}
           {{ line }}
           {% endfor %}
-
-    - name: Email sudoers audit result via Office365
-      mail:
-        host: "{{ smtp_host }}"
-        port: "{{ smtp_port }}"
-        username: "{{ smtp_username }}"
-        password: "{{ smtp_password }}"
-        to: "{{ email_to }}"
-        from: "{{ email_from }}"
-        subject: "Sudoers audit for {{ inventory_hostname }}"
-        body: |
-          Sudoers audit for host: {{ inventory_hostname }}
-          Lines granting root access in /etc/sudoers:
-          {% for line in root_access_lines %}
-          {{ line }}
-          {% endfor %}
-        attach:
-          - "/tmp/sudoers_audit_{{ inventory_hostname }}.txt"
-        secure: starttls
-      delegate_to: localhost
