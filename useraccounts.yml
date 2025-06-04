@@ -1,15 +1,52 @@
 ---
-- name: Retrieve all users in /etc/passwd and display the result
+- name: Retrieve all users from /etc/passwd
   hosts: all
-  gather_facts: false
-  become: true
+  become: true # This playbook needs root privileges to read /etc/passwd
 
   tasks:
-    - name: Get all usernames from /etc/passwd
-      shell: awk -F: '{print $1}' /etc/passwd
-      register: passwd_users
-      changed_when: false
+    - name: Slurp the content of /etc/passwd
+      ansible.builtin.slurp:
+        src: /etc/passwd
+      register: passwd_content
+      changed_when: false # This command does not change system state
 
-    - name: Output all users from /etc/passwd
-      debug:
-        msg: "{{ passwd_users.stdout_lines }}"
+    - name: Decode the base64 content of /etc/passwd
+      ansible.builtin.set_fact:
+        decoded_passwd: "{{ passwd_content['content'] | b64decode }}"
+      # Decodes the base64 content obtained from slurping /etc/passwd.
+
+    - name: Extract all usernames from decoded /etc/passwd content
+      ansible.builtin.set_fact:
+        all_system_users: >-
+          {{ decoded_passwd.splitlines() | map('regex_replace', '^([^:]+):.*', '\\1') | list }}
+      # This task processes each line of the /etc/passwd file.
+      # It uses a regular expression to capture everything before the first colon (':'),
+      # which corresponds to the username field.
+      # 'map' applies this regex replacement to each line, and 'list' converts the result into a list.
+
+    - name: Display all system users found
+      ansible.builtin.debug:
+        msg: "Users on {{ ansible_hostname }}: {{ all_system_users }}"
+      # This task prints the list of extracted usernames for each host.
+
+  post_tasks:
+    - name: Aggregate all users from all hosts
+      ansible.builtin.set_fact:
+        final_all_users_list: []
+      run_once: true
+      # Initializes an empty list on the Ansible control node to store all users from all hosts.
+
+    - name: Add host-specific user lists to the overall summary
+      ansible.builtin.set_fact:
+        final_all_users_list: "{{ final_all_users_list + hostvars[item].all_system_users }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+      # Iterates through each host that was part of the playbook run.
+      # It extracts the 'all_system_users' fact from each host's variables and appends it
+      # to the 'final_all_users_list'.
+
+    - name: Display final aggregated list of all users across all hosts
+      ansible.builtin.debug:
+        msg: "Aggregated list of all users across all hosts: {{ final_all_users_list | unique | sort }}"
+      run_once: true
+      when: final_all_users_list | length > 0
