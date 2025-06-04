@@ -1,18 +1,19 @@
 ---
-- name: Get all users from /etc/passwd and their login dates
+- name: Get all users from /etc/passwd and their last login dates
   hosts: all
+  gather_facts: false
   become: true
 
   tasks:
     - name: Get all users from /etc/passwd
       shell: awk -F: '{print $1}' /etc/passwd
-      register: passwd_users
+      register: users
       changed_when: false
 
     - name: Get last login for each user
       shell: lastlog -u {{ item }}
       register: lastlog
-      loop: "{{ passwd_users.stdout_lines }}"
+      loop: "{{ users.stdout_lines }}"
       changed_when: false
 
     - name: Show user and last login date
