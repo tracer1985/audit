@@ -1,0 +1,36 @@
+---
+- name: Enable specified user accounts
+  hosts: all
+  become: true
+
+  vars:
+    accounts_to_enable:
+      - logstash
+      - kamote1
+      - kamote2
+      - kamote3
+      - kamote4
+      - kamote5
+
+  tasks:
+    - name: Ensure accounts are enabled
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: present
+        password_lock: false # Unlock the password
+        shell: /bin/bash     # Set a standard shell for login
+        comment: "Account enabled by Ansible"
+      loop: "{{ accounts_to_enable }}"
+      ignore_errors: true # Continue if an account does not exist
+
+    - name: Verify account status (optional)
+      ansible.builtin.shell: "grep '^{{ item }}:' /etc/passwd"
+      register: user_check
+      changed_when: false
+      loop: "{{ accounts_to_enable }}"
+
+    - name: Display account status
+      ansible.builtin.debug:
+        msg: "Account {{ item.item }}: {{ item.stdout }}"
+      loop: "{{ user_check.results }}"
+      when: item.rc == 0
