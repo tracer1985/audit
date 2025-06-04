@@ -1,42 +1,12 @@
 ---
-- name: Retrieve all users from /etc/passwd
+- name: Get all users on Linux hosts
   hosts: all
-  become: true
-
+  gather_facts: false
   tasks:
-    - name: Slurp the content of /etc/passwd
-      ansible.builtin.slurp:
-        src: /etc/passwd
-      register: passwd_content
-      changed_when: false
+    - name: Get list of users from /etc/passwd
+      shell: cut -d: -f1 /etc/passwd
+      register: passwd_users
 
-    - name: Decode the base64 content of /etc/passwd
-      ansible.builtin.set_fact:
-        decoded_passwd: "{{ passwd_content['content'] | b64decode }}"
-
-    - name: Extract all usernames from decoded /etc/passwd content
-      ansible.builtin.set_fact:
-        all_system_users: >-
-          {{ decoded_passwd.splitlines() | map('regex_replace', '^([^:]+):.*', '\\1') | list }}
-
-    - name: Display all system users found
-      ansible.builtin.debug:
-        msg: "Users on {{ ansible_hostname }}: {{ all_system_users }}"
-
-  post_tasks:
-    - name: Aggregate all users from all hosts
-      ansible.builtin.set_fact:
-        final_all_users_list: []
-      run_once: true
-
-    - name: Add host-specific user lists to the overall summary
-      ansible.builtin.set_fact:
-        final_all_users_list: "{{ final_all_users_list + hostvars[item].all_system_users }}"
-      loop: "{{ ansible_play_hosts }}"
-      run_once: true
-
-    - name: Display final aggregated list of all users across all hosts
-      ansible.builtin.debug:
-        msg: "Aggregated list of all users across all hosts: {{ final_all_users_list | unique | sort }}"
-      run_once: true
-      when: final_all_users_list | length > 0
+    - name: Show all users
+      debug:
+        var: passwd_users.stdout_lines
