@@ -64,12 +64,6 @@
         final_all_users_login_summary: []
       run_once: true
 
-    - name: Add host-specific user login data to overall summary
-      ansible.builtin.set_fact:
-        final_all_users_login_summary: "{{ final_all_users_login_summary + [{ 'host': hostvars[item].ansible_hostname, 'users_logins': hostvars[item].host_user_login_summary }] }}"
-      loop: "{{ ansible_play_hosts }}"
-      run_once: true
-
     - name: Display final aggregated user login summary across all hosts
       ansible.builtin.debug:
         msg: "Aggregated User and Last Login Dates Across All Hosts: {{ final_all_users_login_summary }}"
