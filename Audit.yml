@@ -18,12 +18,6 @@
         privileged_users: [] # Initialize an empty list
       run_once: true # Ensure this fact is set only once per playbook run
 
-    - name: Extract and add privileged users to the list
-      ansible.builtin.set_fact:
-        privileged_users: "{{ privileged_users + [item | regex_replace('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL.*', '\\1')] }}"
-      loop: "{{ decoded_sudoers.splitlines() }}"
-      when: item is search('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL')
-
     - name: Display privileged users
       ansible.builtin.debug:
         msg: "The following users/groups have 'ALL=(ALL) ALL' privileges: {{ privileged_users | unique }}"
