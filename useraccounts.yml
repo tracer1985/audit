@@ -37,21 +37,3 @@
           }) }}
       loop: "{{ lastlog_output.stdout_lines }}"
       when: item | length > 0
-
-    - name: Iterate through all system users and find their last login
-      ansible.builtin.set_fact:
-        host_user_login_summary: >-
-          {{ host_user_login_summary + [{
-            'user': user,
-            'last_login': last_logins_dict.get(user, 'No lastlog entry found')
-          }] }}
-      loop: "{{ all_system_users }}"
-      loop_control:
-        loop_var: user
-
-  post_tasks:
-    - name: Aggregate all user login data from all hosts
-      ansible.builtin.set_fact:
-        final_all_users_login_summary: []
-      run_once: true
-
