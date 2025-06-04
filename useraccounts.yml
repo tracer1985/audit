@@ -53,19 +53,9 @@
       loop_control:
         loop_var: user
 
-    - name: Display user and last login dates for this host
-      ansible.builtin.debug:
-        msg: "User and last login summary for {{ ansible_hostname }}: {{ host_user_login_summary }}"
-      when: host_user_login_summary | length > 0
-
   post_tasks:
     - name: Aggregate all user login data from all hosts
       ansible.builtin.set_fact:
         final_all_users_login_summary: []
       run_once: true
 
-    - name: Display final aggregated user login summary across all hosts
-      ansible.builtin.debug:
-        msg: "Aggregated User and Last Login Dates Across All Hosts: {{ final_all_users_login_summary }}"
-      run_once: true
-      when: final_all_users_login_summary | length > 0
