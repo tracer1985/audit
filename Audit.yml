@@ -1,20 +1,28 @@
 ---
-- name: Audit /etc/sudoers and display results on console
+- name: Audit /etc/sudoers for root access privileges
   hosts: all
   gather_facts: false
   tasks:
-    - name: Read /etc/sudoers file content
+    - name: Read /etc/sudoers file
       become: true
       slurp:
         src: /etc/sudoers
       register: sudoers_content
 
-    - name: Parse sudoers for root access
+    - name: Decode /etc/sudoers content
       set_fact:
         sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
-        root_access_lines: "{{ sudoers_decoded.split('\n') | select('match', '^(root|%[^\s]+)\\s+ALL=\\(ALL(:ALL)?\\)\\s+ALL') | list }}"
 
-    - name: Show users/groups with root access
+    - name: Extract lines granting root access
+      set_fact:
+        root_access_lines: >-
+          {{
+            sudoers_decoded.split('\n') |
+            select('match', '^(root|%[^\s]+)\s+ALL=\(ALL(:ALL)?\)\s+ALL') |
+            list
+          }}
+
+    - name: Display users/groups with root access
       debug:
         msg: |
           Host: {{ inventory_hostname }}
