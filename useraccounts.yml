@@ -1,82 +1,15 @@
 ---
-- name: Get all users from /etc/passwd and their login dates
+- name: Retrieve all users in /etc/passwd
   hosts: all
-  become: true 
+  gather_facts: false
+  become: true
 
   tasks:
-    - name: Slurp the content of /etc/passwd
-      ansible.builtin.slurp:
-        src: /etc/passwd
-      register: passwd_content
+    - name: Get all usernames from /etc/passwd
+      shell: awk -F: '{print $1}' /etc/passwd
+      register: passwd_users
       changed_when: false
 
-    - name: Decode the base64 content of /etc/passwd
-      ansible.builtin.set_fact:
-        decoded_passwd: "{{ passwd_content['content'] | b64decode }}"
-
-    - name: Extract all users from /etc/passwd
-      ansible.builtin.set_fact:
-        all_system_users: >-
-          {{ decoded_passwd.splitlines() | map('regex_replace', '^([^:]+):.*', '\\1') | list }}
-
-    - name: Run 'last -F' to get full login history
-      ansible.builtin.command: last -F
-      register: last_output
-      changed_when: false
-
-    - name: Process 'last' command output into a dictionary for easy lookup
-      ansible.builtin.set_fact:
-        last_logins_dict: {}
-      run_once: true
-
-    - name: Populate last_logins_dict with user and last login time
-      ansible.builtin.set_fact:
-        last_logins_dict: >-
-          {{ last_logins_dict | combine({
-            item.split()[0]: item.split('  ')[1].split(' - ')[0].strip()
-          }) }}
-      loop: "{{ last_output.stdout_lines }}"
-      when:
-        - item is not search('^wtmp begins')
-        - item is not search('^reboot')
-        - item is not search('^shutdown')
-        - item is not search('^\\s*$')
-        - item.split() | length > 1
-
-    - name: Combine /etc/passwd users with their last login dates
-      ansible.builtin.set_fact:
-        host_user_login_summary: []
-
-    - name: Iterate through all system users and find their last login
-      ansible.builtin.set_fact:
-        host_user_login_summary: >-
-          {{ host_user_login_summary + [{
-            'user': user,
-            'last_login': last_logins_dict.get(user, 'Never logged in or no recent activity')
-          }] }}
-      loop: "{{ all_system_users }}"
-      loop_control:
-        loop_var: user
-        
-    - name: Display user and login dates for this host
-      ansible.builtin.debug:
-        msg: "User login summary for {{ ansible_hostname }}: {{ host_user_login_summary }}"
-      when: host_user_login_summary | length > 0
-
-  post_tasks:
-    - name: Aggregate all user login data from all hosts
-      ansible.builtin.set_fact:
-        final_all_users_login_summary: []
-      run_once: true
-
-    - name: Add host-specific user login data to overall summary
-      ansible.builtin.set_fact:
-        final_all_users_login_summary: "{{ final_all_users_login_summary + [{ 'host': hostvars[item].ansible_hostname, 'users_logins': hostvars[item].host_user_login_summary }] }}"
-      loop: "{{ ansible_play_hosts }}"
-      run_once: true
-
-    - name: Display final aggregated user login summary across all hosts
-      ansible.builtin.debug:
-        msg: "Aggregated User and Login Dates Across All Hosts: {{ final_all_users_login_summary }}"
-      run_once: true
-      when: final_all_users_login_summary | length > 0
+    - name: Show all users
+      debug:
+        msg: "{{ passwd_users.stdout_lines }}"
