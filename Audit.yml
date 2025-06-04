@@ -1,21 +1,24 @@
 ---
-- name: Audit /etc/sudoers for accounts allowed to run any command anywhere as root
+- name: Audit all accounts (including group members) allowed to run any command anywhere as root in /etc/sudoers
   hosts: all
   gather_facts: false
+  vars:
+    sudoers_file: /etc/sudoers
+
   tasks:
     - name: Read /etc/sudoers file
       become: true
       slurp:
-        src: /etc/sudoers
+        src: "{{ sudoers_file }}"
       register: sudoers_content
 
     - name: Decode sudoers content
       set_fact:
         sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
 
-    - name: Extract accounts/groups allowed full root access
+    - name: Extract accounts/groups with full root access
       set_fact:
-        full_root_access_accounts: >-
+        full_root_access_entries: >-
           {{
             sudoers_decoded.split('\n')
             | select('match', '^([a-zA-Z0-9_-]+|%[a-zA-Z0-9_-]+)\s+ALL=\(ALL(:ALL)?\)\s+ALL')
@@ -24,11 +27,39 @@
             | list
           }}
 
-    - name: Show accounts/groups allowed full root access
+    - name: Separate users and groups
+      set_fact:
+        user_entries: "{{ full_root_access_entries | reject('match', '^%') | list }}"
+        group_entries: "{{ full_root_access_entries | select('match', '^%') | map('regex_replace', '^%', '') | list }}"
+
+    - name: Get members of each group
+      become: true
+      shell: "getent group {{ item }} | awk -F: '{print $4}'"
+      register: group_members
+      with_items: "{{ group_entries }}"
+      when: group_entries | length > 0
+
+    - name: Assemble all accounts with full root access
+      set_fact:
+        all_accounts_with_full_root_access: >-
+          {{
+            user_entries
+            + (
+                group_members.results
+                | map(attribute='stdout')
+                | map('split', ',')
+                | sum(start=[])
+                | reject('equalto', '')
+                | unique
+                | list
+              )
+          }}
+
+    - name: Show all accounts (including group members) with full root access
       debug:
         msg: |
           Host: {{ inventory_hostname }}
-          Accounts/Groups allowed to run any command anywhere as root in /etc/sudoers:
-          {% for acc in full_root_access_accounts %}
+          Accounts (users and group members) allowed to run any command anywhere as root in /etc/sudoers:
+          {% for acc in all_accounts_with_full_root_access %}
           {{ acc }}
           {% endfor %}
