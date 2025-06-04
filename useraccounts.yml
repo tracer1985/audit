@@ -38,10 +38,6 @@
       loop: "{{ lastlog_output.stdout_lines }}"
       when: item | length > 0
 
-    - name: Combine /etc/passwd users with their last login dates
-      ansible.builtin.set_fact:
-        host_user_login_summary: []
-
     - name: Iterate through all system users and find their last login
       ansible.builtin.set_fact:
         host_user_login_summary: >-
