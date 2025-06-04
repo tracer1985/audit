@@ -9,4 +9,4 @@
 
     - name: Show all users
       debug:
-        var: passwd_users.stdout_lines
+        var: passwd_users
