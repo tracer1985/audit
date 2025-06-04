@@ -1,43 +1,34 @@
 ---
-- name: Check /etc/sudoers for ALL=(ALL) ALL privileges
+- name: Audit /etc/sudoers for accounts allowed to run any command anywhere as root
   hosts: all
-  become: true # This playbook needs root privileges to read /etc/sudoers
-
+  gather_facts: false
   tasks:
-    - name: Slurp the content of /etc/sudoers
-      ansible.builtin.slurp:
+    - name: Read /etc/sudoers file
+      become: true
+      slurp:
         src: /etc/sudoers
       register: sudoers_content
 
-    - name: Decode the base64 content
-      ansible.builtin.set_fact:
-        decoded_sudoers: "{{ sudoers_content['content'] | b64decode }}"
+    - name: Decode sudoers content
+      set_fact:
+        sudoers_decoded: "{{ sudoers_content.content | b64decode }}"
 
-    - name: Find users with ALL=(ALL) ALL privileges
-      ansible.builtin.set_fact:
-        privileged_users: [] # Initialize an empty list
-      run_once: true # Ensure this fact is set only once per playbook run
+    - name: Extract accounts/groups allowed full root access
+      set_fact:
+        full_root_access_accounts: >-
+          {{
+            sudoers_decoded.split('\n')
+            | select('match', '^([a-zA-Z0-9_-]+|%[a-zA-Z0-9_-]+)\s+ALL=\(ALL(:ALL)?\)\s+ALL')
+            | map('regex_search', '^([a-zA-Z0-9_-]+|%[a-zA-Z0-9_-]+)')
+            | unique
+            | list
+          }}
 
-    - name: Parse decoded sudoers content
-      ansible.builtin.debug:
-        msg: "Checking line: {{ item }}"
-      loop: "{{ decoded_sudoers.splitlines() }}"
-      when: item is search('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL') # Regex to find lines like 'username ALL=(ALL) ALL'
-      # The regex captures the username in group 1.
-      # ^\\s* - Start of line, optional whitespace
-      # ([^#\\s]+) - Capture group 1: one or more characters that are not '#' or whitespace (this is our username)
-      # \\s+       - One or more whitespace characters
-      # ALL=\\(ALL\\) - Literal 'ALL=(ALL)' (parentheses escaped)
-      # \\s+       - One or more whitespace characters
-      # ALL        - Literal 'ALL'
-
-    - name: Extract and add privileged users to the list
-      ansible.builtin.set_fact:
-        privileged_users: "{{ privileged_users + [item | regex_replace('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL.*', '\\1')] }}"
-      loop: "{{ decoded_sudoers.splitlines() }}"
-      when: item is search('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL')
-
-    - name: Display privileged users
-      ansible.builtin.debug:
-        msg: "The following users/groups have 'ALL=(ALL) ALL' privileges: {{ privileged_users | unique }}"
-      when: privileged_users | length > 0
+    - name: Show accounts/groups allowed full root access
+      debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Accounts/Groups allowed to run any command anywhere as root in /etc/sudoers:
+          {% for acc in full_root_access_accounts %}
+          {{ acc }}
+          {% endfor %}
