@@ -6,6 +6,11 @@
   vars:
     accounts_to_disable:
       - logstash
+      - kamote1
+      - kamote2
+      - kamote3
+      - kamote4
+      - kamote5
 
   tasks:
     - name: Ensure accounts are disabled
