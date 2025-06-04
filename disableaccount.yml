@@ -1,0 +1,19 @@
+---
+- name: Disable specific user accounts on Linux
+  hosts: all
+  gather_facts: false
+
+  vars:
+    disabled_users:
+      - logstash
+
+  tasks:
+    - name: Disable user account
+      ansible.builtin.command: usermod --expiredate 1 {{ item }}
+      loop: "{{ disabled_users }}"
+      ignore_errors: true
+
+    - name: Lock user account password (extra security)
+      ansible.builtin.command: passwd -l {{ item }}
+      loop: "{{ disabled_users }}"
+      ignore_errors: true
