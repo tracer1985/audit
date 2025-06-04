@@ -1,32 +1,42 @@
-#!/usr/bin/env sh
-# If the top line line doesn't work, change to #!/bin/bash
+---
+- name: Retrieve all users from /etc/passwd
+  hosts: all
+  become: true
 
-# Name: list_users.sh
-# Purpose: List all normal user and system groups in the system. 
-# Tested on RHEL / Debian Linux / BusyBox / GNU/Linux / Mac OS X Sierra Darwin
-# Author: Zlatko Minev, based on Vivek Gite, under GPL v2.0+
-# Original link: https://www.cyberciti.biz/faq/linux-list-users-command/
-# See also: http://tuxthink.blogspot.com/2012/03/look-into-etcpasswdetcshadow-and.html
-# -----------------------------------------------------------------------------------
+  tasks:
+    - name: Slurp the content of /etc/passwd
+      ansible.builtin.slurp:
+        src: /etc/passwd
+      register: passwd_content
+      changed_when: false
 
-clear 
-#source ./colors.sh   
-Bold='\033[1m'           # Bold
-BRed='\033[1;31m'        # Bold Red
-ResetTxt='\033[0m'       # Text Reset
-Bar='---------------------------------'
+    - name: Decode the base64 content of /etc/passwd
+      ansible.builtin.set_fact:
+        decoded_passwd: "{{ passwd_content['content'] | b64decode }}"
 
-_g="/etc/group"
-#echo "Content of $_g:" | cat - $_g                                               # https://superuser.com/questions/1285136/cat-command-and-echo  # echo " "
-printf "%s${Bold}[ System User Groups ]${ResetTxt}%s\\n" ${Bar} ${Bar}            # https://github.com/koalaman/shellcheck/wiki/SC2059
-printf "${BRed}%-5s %-15s %-15s %-8s${ResetTxt}\\n"              "GID" "Group Name" "Users in Group" "Group Pswd"
-awk -F':' '{ printf "%-5s %-15s %-15s %-8s\n", $3,       $1,         $4,             $2       }' "$_g"
-printf '%s%s%s\n\n' "${Bar}" '------------------------' "${Bar}"
+    - name: Extract all usernames from decoded /etc/passwd content
+      ansible.builtin.set_fact:
+        all_system_users: >-
+          {{ decoded_passwd.splitlines() | map('regex_replace', '^([^:]+):.*', '\\1') | list }}
 
+    - name: Display all system users found
+      ansible.builtin.debug:
+        msg: "Users on {{ ansible_hostname }}: {{ all_system_users }}"
 
-_p="/etc/passwd"
-#echo "Content of $_g:" | cat - $_p  # echo " "
-printf "%s${Bold}[ System User Accounts ]${ResetTxt}%s\\n" ${Bar} ${Bar}
-printf       "${BRed}%-5s %-5s %-10s %-16s %-15s %-25s %-10s${ResetTxt}\\n" "GID"  "UID" "User Name"  "User Info" "User shell"  "User Directory"   "Has pswd"
-awk -F':' '{ printf "%-5s %-5s %-10s %-16s %-15s %-25s %-10s\n",             $4,    $3,      $1,         $5,            $7,               $6,             $2       }' "$_p"
-printf '%s%s%s\n\n\n' "${Bar}" '------------------------' "${Bar}" 
+  post_tasks:
+    - name: Aggregate all users from all hosts
+      ansible.builtin.set_fact:
+        final_all_users_list: []
+      run_once: true
+
+    - name: Add host-specific user lists to the overall summary
+      ansible.builtin.set_fact:
+        final_all_users_list: "{{ final_all_users_list + hostvars[item].all_system_users }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+
+    - name: Display final aggregated list of all users across all hosts
+      ansible.builtin.debug:
+        msg: "Aggregated list of all users across all hosts: {{ final_all_users_list | unique | sort }}"
+      run_once: true
+      when: final_all_users_list | length > 0
