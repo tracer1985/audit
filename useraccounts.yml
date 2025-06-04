@@ -1,18 +1,24 @@
 ---
-- name: Audit all user last login dates
+- name: Get all users in /etc/passwd and their last login dates
   hosts: all
   gather_facts: false
   tasks:
-    - name: Get last login information for all users
+    - name: Get all regular users from /etc/passwd (UID >= 1000, not nobody)
       become: true
-      shell: lastlog | tail -n +2
-      register: lastlog_output
+      shell: awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd
+      register: passwd_users
 
-    - name: Show all user last login dates
+    - name: Get last login for each user
+      become: true
+      shell: lastlog -u {{ item }}
+      register: lastlog_per_user
+      loop: "{{ passwd_users.stdout_lines }}"
+      changed_when: false
+
+    - name: Show user last login dates
       debug:
         msg: |
           Host: {{ inventory_hostname }}
-          User Last Login Dates:
-          {% for line in lastlog_output.stdout_lines %}
-          {{ line }}
-          {% endfor %}
+          User: {{ item.stdout_lines[1].split()[0] if item.stdout_lines|length > 1 else 'UNKNOWN' }}
+          Last Login: {{ ' '.join(item.stdout_lines[1].split()[1:]) if item.stdout_lines|length > 1 else 'Never logged in' }}
+      loop: "{{ lastlog_per_user.results }}"
