@@ -18,6 +18,25 @@
         privileged_users: [] # Initialize an empty list
       run_once: true # Ensure this fact is set only once per playbook run
 
+    - name: Parse decoded sudoers content
+      ansible.builtin.debug:
+        msg: "Checking line: {{ item }}"
+      loop: "{{ decoded_sudoers.splitlines() }}"
+      when: item is search('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL') # Regex to find lines like 'username ALL=(ALL) ALL'
+      # The regex captures the username in group 1.
+      # ^\\s* - Start of line, optional whitespace
+      # ([^#\\s]+) - Capture group 1: one or more characters that are not '#' or whitespace (this is our username)
+      # \\s+       - One or more whitespace characters
+      # ALL=\\(ALL\\) - Literal 'ALL=(ALL)' (parentheses escaped)
+      # \\s+       - One or more whitespace characters
+      # ALL        - Literal 'ALL'
+
+    - name: Extract and add privileged users to the list
+      ansible.builtin.set_fact:
+        privileged_users: "{{ privileged_users + [item | regex_replace('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL.*', '\\1')] }}"
+      loop: "{{ decoded_sudoers.splitlines() }}"
+      when: item is search('^\\s*([^#\\s]+)\\s+ALL=\\(ALL\\)\\s+ALL')
+
     - name: Display privileged users
       ansible.builtin.debug:
         msg: "The following users/groups have 'ALL=(ALL) ALL' privileges: {{ privileged_users | unique }}"
