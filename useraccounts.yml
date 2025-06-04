@@ -3,19 +3,19 @@
   hosts: all
   gather_facts: false
   tasks:
-    - name: Get all regular users from /etc/passwd (UID >= 1000, not nobody)
+    - name: Get all usernames from /etc/passwd (all users)
       become: true
-      shell: awk -F: '$3 >= 1000 && $1 != "nobody" {print $1}' /etc/passwd
-      register: passwd_users
+      shell: awk -F: '{print $1}' /etc/passwd
+      register: all_passwd_users
 
-    - name: Get last login for each user
+    - name: Get last login for each user from lastlog
       become: true
       shell: lastlog -u {{ item }}
       register: lastlog_per_user
-      loop: "{{ passwd_users.stdout_lines }}"
+      loop: "{{ all_passwd_users.stdout_lines }}"
       changed_when: false
 
-    - name: Show user last login dates
+    - name: Show user and last login date
       debug:
         msg: |
           Host: {{ inventory_hostname }}
