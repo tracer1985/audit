@@ -1,29 +1,53 @@
 ---
-- name: Get all user last login dates
+- name: Get all user login dates
   hosts: all
-  gather_facts: false
+  become: true # This playbook needs root privileges to run 'last' and potentially read log files
+
   tasks:
-    - name: Get last login information for all users
-      become: true
-      shell: lastlog -b 0 | tail -n +2
-      register: lastlog_output
+    - name: Run 'last -F' to get full login history
+      ansible.builtin.command: last -F
+      register: last_output
+      changed_when: false # This command does not change system state
 
-    - name: Parse last login data
-      set_fact:
-        user_logins: >-
-          {{
-            lastlog_output.stdout_lines
-            | map('regex_replace', '\\s+', ' ')
-            | map('split', ' ')
-            | map('community.general.dict', ['username', 'port', 'from', 'date', 'time', 'timezone'])
-            | list
-          }}
+    - name: Parse login history and extract user login dates
+      ansible.builtin.set_fact:
+        user_login_info: [] # Initialize an empty list to store login details
 
-    - name: Show all user last login dates
-      debug:
-        msg: |
-          Host: {{ inventory_hostname }}
-          User Last Login Dates:
-          {% for line in lastlog_output.stdout_lines %}
-          {{ line }}
-          {% endfor %}
+    - name: Process each line of 'last' command output
+      ansible.builtin.set_fact:
+        user_login_info: >-
+          {{ user_login_info + [{
+            'user': item.split()[0],
+            'login_time': item.split('  ')[1].strip() if '  ' in item else 'N/A'
+          }] }}
+      loop: "{{ last_output.stdout_lines }}"
+      when:
+        - item is not search('^wtmp begins') # Exclude the header line
+        - item is not search('^reboot') # Exclude reboot entries
+        - item is not search('^shutdown') # Exclude shutdown entries
+        - item is not search('^root') # Exclude root login entries (if you only want non-root)
+        - item is not search('^\\s*$') # Exclude empty lines
+        - item.split() | length > 1 # Ensure there's enough data to parse
+
+    - name: Display aggregated user login dates for this host
+      ansible.builtin.debug:
+        msg: "Login history for {{ ansible_hostname }}: {{ user_login_info }}"
+      when: user_login_info | length > 0
+
+  post_tasks:
+    - name: Summarize all user login dates across all hosts
+      ansible.builtin.set_fact:
+        all_hosts_login_summary: []
+      run_once: true
+
+    - name: Add host-specific login data to overall summary
+      ansible.builtin.set_fact:
+        all_hosts_login_summary: "{{ all_hosts_login_summary + [{ 'host': hostvars[item].ansible_hostname, 'logins': hostvars[item].user_login_info }] }}"
+      loop: "{{ ansible_play_hosts }}"
+      run_once: true
+
+    - name: Display final aggregated login summary
+      ansible.builtin.debug:
+        msg: "Aggregated User Login Dates Across All Hosts: {{ all_hosts_login_summary }}"
+      run_once: true
+      when: all_hosts_login_summary | length > 0
