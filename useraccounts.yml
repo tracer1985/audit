@@ -1,3 +1,4 @@
+---
 - name: Get all user last login dates
   hosts: all
   gather_facts: false
