@@ -1,0 +1,28 @@
+- name: Get all user last login dates
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Get last login information for all users
+      become: true
+      shell: lastlog -b 0 | tail -n +2
+      register: lastlog_output
+
+    - name: Parse last login data
+      set_fact:
+        user_logins: >-
+          {{
+            lastlog_output.stdout_lines
+            | map('regex_replace', '\\s+', ' ')
+            | map('split', ' ')
+            | map('community.general.dict', ['username', 'port', 'from', 'date', 'time', 'timezone'])
+            | list
+          }}
+
+    - name: Show all user last login dates
+      debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          User Last Login Dates:
+          {% for line in lastlog_output.stdout_lines %}
+          {{ line }}
+          {% endfor %}
